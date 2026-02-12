@@ -1,0 +1,21 @@
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build directories
+cmake-build-*/
+build/
+bin/
+*.exe
+*.obj
+*.pdb
+*.ilk
+
+# Trae history
+.history/
+
+# OS generated files
+.DS_Store
+Thumbs.db
