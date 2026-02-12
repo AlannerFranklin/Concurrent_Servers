@@ -1,21 +1,6 @@
-# IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Build directories
-cmake-build-*/
-build/
-bin/
+.history
+.vscode
+.idea
+*.o
+__pycache__
 *.exe
-*.obj
-*.pdb
-*.ilk
-
-# Trae history
-.history/
-
-# OS generated files
-.DS_Store
-Thumbs.db
