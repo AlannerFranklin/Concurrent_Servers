@@ -51,7 +51,25 @@
     ```
     *验证*: 开启两个终端分别运行客户端，可以看到它们互不干扰。
 
-### 2.3 客户端测试工具
+### 2.3 线程池服务器 (Thread Pool Server)
+*   **代码位置**: `thread_pool/`
+*   **特点**: 预先创建固定数量的线程（如 4 个），通过任务队列分发连接。避免了频繁创建/销毁线程的开销，防止系统过载。
+*   **核心技术**:
+    *   **生产者-消费者模型**: 主线程 Accept -> 入队 -> Worker 线程抢锁 -> 出队 -> 处理。
+    *   **条件变量**: `pthread_cond_wait` 实现“无任务睡眠，有任务唤醒”。
+    *   **循环队列**: 使用 `% queue_size` 实现固定内存的循环复用。
+    *   **坑点修复**: 必须 `malloc` 新内存来传递 `sockfd` 参数，防止主线程修改变量导致 Race Condition。
+*   **编译**:
+    ```bash
+    gcc thread_pool/thread_pool_server.c thread_pool/thread_pool.c sequential_server/utils.c -o thread_pool/server -pthread
+    ```
+*   **运行**:
+    ```bash
+    ./thread_pool/server
+    ```
+
+## 3. 客户端测试脚本
+
 *   **脚本**: `simple_client.py`
 *   **用法**:
     ```bash
