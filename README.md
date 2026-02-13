@@ -68,6 +68,22 @@
     ./thread_pool/server
     ```
 
+### 2.4 IO 多路复用服务器 (Select Server)
+*   **代码位置**: `select_server/`
+*   **特点**: **单线程**实现并发。利用 OS 提供的 `select` 系统调用，同时监控多个 Socket 的状态（可读/可写）。
+*   **核心技术**:
+    *   **非阻塞 IO (Non-blocking IO)**: 必须将所有 Socket 设为非阻塞，防止某个客户端卡死整个线程。
+    *   **状态机 (State Machine)**: 因为无法在一个循环里等待完整消息，必须维护每个客户端的 `state` (INITIAL_ACK / WAIT_FOR_MSG / IN_MSG)，逐字节处理。
+    *   **输出缓冲区**: `send` 也可能阻塞，所以需要维护 `send_buf`，并监听 `writefds`，在 Socket 可写时再发送。
+*   **编译**:
+    ```bash
+    gcc select_server/select_server.c sequential_server/utils.c -o select_server/server
+    ```
+*   **运行**:
+    ```bash
+    ./select_server/server
+    ```
+
 ## 3. 客户端测试脚本
 
 *   **脚本**: `simple_client.py`
@@ -79,3 +95,7 @@
 ## 3. 学习心得与坑点
 *   **Socket API**: 理解了 `socket`, `bind`, `listen`, `accept`, `recv`, `send` 的基本流程。
 *   **多线程陷阱**: 在创建线程时，传递给线程的参数（如 `sockfd`）必须是堆内存 (`malloc`) 分配的，不能传栈变量的地址，否则会有 Race Condition。
+*   **Select 的坑**: 
+    1. 必须使用**非阻塞 IO**。
+    2. `send` 不能直接调，要配合 `writefds` 和缓冲区，否则会丢数据。
+    3. `FD_SET` 必须每次循环都重置，因为 `select` 会修改传入的集合。
