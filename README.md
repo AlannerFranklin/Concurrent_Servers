@@ -84,6 +84,22 @@
     ./select_server/server
     ```
 
+### 2.5 Epoll 服务器 (Epoll Server)
+*   **代码位置**: `epoll_server/`
+*   **特点**: Linux 特有的高性能 IO 复用模型。解决了 Select 的 O(N) 轮询性能问题。
+*   **核心优势**:
+    *   **O(k) 效率**: 仅处理活跃的 Socket，无需遍历所有连接。
+    *   **边缘触发/水平触发**: 本实现使用默认的水平触发 (Level Triggered)。
+    *   **动态监听**: 只有在有数据要发送时才开启 `EPOLLOUT` 监听，避免不必要的内核唤醒。
+*   **编译**:
+    ```bash
+    gcc epoll_server/epoll_server.c sequential_server/utils.c -o epoll_server/server
+    ```
+*   **运行**:
+    ```bash
+    ./epoll_server/server
+    ```
+
 ## 3. 客户端测试脚本
 
 *   **脚本**: `simple_client.py`
@@ -92,10 +108,27 @@
     python3 simple_client.py localhost 9090
     ```
 
-## 3. 学习心得与坑点
+## 4. 局限性与 Future Work
+
+### 4.1 当前实现的局限性 (Limitations)
+*   **Select 的连接数限制**: `select_server` 受限于 `FD_SETSIZE` (通常是 1024)，无法支持超大规模并发。
+*   **内存拷贝开销**: 目前所有的 Buffer 读写都涉及用户态到内核态的拷贝，尚未利用 Zero-copy 技术（如 `sendfile`）。
+*   **单线程瓶颈**: 虽然 IO 复用解决了并发连接数问题，但所有业务逻辑仍在**单线程**运行。如果业务计算密集（例如加密解密、复杂数据处理），会阻塞整个事件循环，导致所有客户端延迟增加。
+*   **惊群效应**: 虽然目前未实现多进程 Epoll，但如果将来扩展，简单的 Accept 可能会遇到惊群问题。
+*   **固定 Buffer 大小**: 使用了固定的 `1024` 字节 Buffer，对于超长消息可能会有截断或处理复杂性。
+*   **Epoll 状态存储查找慢**: 目前 `epoll_server` 仍然使用简单的数组 (`clients[MAX_EVENTS]`) 来通过 fd 查找客户端状态。如果 fd 值很大（超过 1024），会导致数组越界或浪费内存。在生产环境中，应该使用**哈希表 (Hash Map)** 来存储 `fd -> client_state` 的映射，以便高效且节省内存地管理稀疏连接。
+
+### 4.2 未来改进方向 (Future Work)
+*   **Reactor 模式**: 封装更通用的 Reactor 库，将 IO 事件与具体的业务回调解耦（类似 libevent/libuv）。
+*   **多线程 + Event Loop (One Loop Per Thread)**: 结合多线程和 Epoll。主线程只负责 Accept，然后将新连接分发给 Worker 线程的 Event Loop。这是 Nginx 和 Netty 的核心模型，能充分利用多核 CPU。
+*   **超时管理**: 目前没有处理僵尸连接。应该增加定时器轮或者红黑树来管理连接超时，踢掉长时间不活动的客户端。
+*   **应用层 Buffer 优化**: 实现动态扩容的 RingBuffer，替代目前简单的定长数组。
+
+## 5. 学习心得与坑点
 *   **Socket API**: 理解了 `socket`, `bind`, `listen`, `accept`, `recv`, `send` 的基本流程。
 *   **多线程陷阱**: 在创建线程时，传递给线程的参数（如 `sockfd`）必须是堆内存 (`malloc`) 分配的，不能传栈变量的地址，否则会有 Race Condition。
 *   **Select 的坑**: 
     1. 必须使用**非阻塞 IO**。
     2. `send` 不能直接调，要配合 `writefds` 和缓冲区，否则会丢数据。
     3. `FD_SET` 必须每次循环都重置，因为 `select` 会修改传入的集合。
+*   **Epoll 思考**: 理解了为何 Select 是 O(N) 而 Epoll 是 O(k)。Epoll 通过事件回调机制，只返回就绪的 FD，在大并发下性能优势巨大。
