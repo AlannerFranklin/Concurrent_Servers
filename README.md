@@ -102,7 +102,13 @@
 
 ### 2.6 Libuv 服务器 (Libuv Server)
 *   **代码位置**: `libuv_server/`
-*   **特点**: 使用 Libuv 库（Node.js 底层）实现跨平台异步 IO。不再直接操作 fd，而是使用 Handles 和 Streams。
+*   **特点**: 使用 Libuv 库（Node.js 底层）实现跨平台异步 IO。
+    *   **事件驱动**: 不再直接操作 fd，而是使用 Handles 和 Streams。
+    *   **回调地狱 (Callback Hell)**: 业务逻辑被拆分到 `on_connect`, `on_read`, `on_write` 等回调函数中。
+    *   **状态管理**: 利用 `client->data` 指针在不同回调之间传递上下文 (Context)。
+*   **核心技术**:
+    *   **Work Queue**: 利用线程池处理耗时任务（如文件 IO），避免阻塞主事件循环。
+    *   **State Machine**: 在回调中维护协议状态 (`WAIT_FOR_MSG` / `IN_MSG`)。
 *   **编译**:
     ```bash
     gcc libuv_server/libuv_server.c sequential_server/utils.c -o libuv_server/server -luv
@@ -111,6 +117,16 @@
     ```bash
     ./libuv_server/server
     ```
+
+### 2.7 Redis 案例研究 (Redis Case Study)
+*   **学习内容**: 深入分析 Redis 的高性能架构 (Part 5)。
+*   **核心架构**:
+    *   **单线程事件循环**: 避免了多线程的锁竞争和上下文切换开销。
+    *   **ae 库**: Redis 自研的简单事件库，封装了 `epoll`/`kqueue`/`select`。
+    *   **写优化 (beforeSleep)**: 不立即调用 `send`，而是将待发送数据放入链表，在每次进入 `epoll_wait` 睡眠**之前**批量发送，减少系统调用次数。
+*   **启示**: 
+    *   高性能不一定需要多线程。对于 IO 密集型 + 内存操作，单线程往往更快。
+    *   **CPU 瓶颈**: 单线程模型的最大弱点是不能有耗时命令（如 `KEYS *`），否则会阻塞整个服务。
 
 ## 3. 客户端测试脚本
 
