@@ -100,6 +100,18 @@
     ./epoll_server/server
     ```
 
+### 2.6 Libuv 服务器 (Libuv Server)
+*   **代码位置**: `libuv_server/`
+*   **特点**: 使用 Libuv 库（Node.js 底层）实现跨平台异步 IO。不再直接操作 fd，而是使用 Handles 和 Streams。
+*   **编译**:
+    ```bash
+    gcc libuv_server/libuv_server.c sequential_server/utils.c -o libuv_server/server -luv
+    ```
+*   **运行**:
+    ```bash
+    ./libuv_server/server
+    ```
+
 ## 3. 客户端测试脚本
 
 *   **脚本**: `simple_client.py`
