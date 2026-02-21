@@ -31,11 +31,11 @@
 *   **特点**: 一次只能服务一个客户端，必须等当前客户端断开连接后才能服务下一个。
 *   **编译**:
     ```bash
-    gcc sequential_server/sequential_server.c sequential_server/utils.c -o sequential_server_bin
+    cc sequential_server/sequential_server.c utils.c -o sequential_server/sequential_server
     ```
 *   **运行**:
     ```bash
-    ./sequential_server_bin
+    ./sequential_server/sequential_server
     ```
 
 ### 2.2 多线程服务器 (Threaded Server)
@@ -43,11 +43,11 @@
 *   **特点**: 为每个客户端创建一个新线程 (Thread-per-client)。可以同时服务多个客户端。
 *   **编译**:
     ```bash
-    gcc threads/threaded_server.c sequential_server/utils.c -o threaded_server_bin -pthread
+    cc threads/threaded_server.c utils.c -o threads/threaded_server -pthread
     ```
 *   **运行**:
     ```bash
-    ./threaded_server_bin
+    ./threads/threaded_server
     ```
     *验证*: 开启两个终端分别运行客户端，可以看到它们互不干扰。
 
@@ -61,11 +61,11 @@
     *   **坑点修复**: 必须 `malloc` 新内存来传递 `sockfd` 参数，防止主线程修改变量导致 Race Condition。
 *   **编译**:
     ```bash
-    gcc thread_pool/thread_pool_server.c thread_pool/thread_pool.c sequential_server/utils.c -o thread_pool/server -pthread
+    cc thread_pool/thread_pool_server.c thread_pool/thread_pool.c utils.c -o thread_pool/thread_pool_server -pthread
     ```
 *   **运行**:
     ```bash
-    ./thread_pool/server
+    ./thread_pool/thread_pool_server
     ```
 
 ### 2.4 IO 多路复用服务器 (Select Server)
@@ -77,11 +77,11 @@
     *   **输出缓冲区**: `send` 也可能阻塞，所以需要维护 `send_buf`，并监听 `writefds`，在 Socket 可写时再发送。
 *   **编译**:
     ```bash
-    gcc select_server/select_server.c sequential_server/utils.c -o select_server/server
+    cc select_server/select_server.c utils.c -o select_server/select_server
     ```
 *   **运行**:
     ```bash
-    ./select_server/server
+    ./select_server/select_server
     ```
 
 ### 2.5 Epoll 服务器 (Epoll Server)
@@ -93,7 +93,7 @@
     *   **动态监听**: 只有在有数据要发送时才开启 `EPOLLOUT` 监听，避免不必要的内核唤醒。
 *   **编译**:
     ```bash
-    gcc epoll_server/epoll_server.c sequential_server/utils.c -o epoll_server/server
+    cc epoll_server/epoll_server.c utils.c -o epoll_server/server
     ```
 *   **运行**:
     ```bash
@@ -102,77 +102,97 @@
 
 ### 2.6 Libuv 服务器 (Libuv Server)
 *   **代码位置**: `libuv_server/`
-*   **特点**: 使用 Libuv 库（Node.js 底层）实现跨平台异步 IO。
-    *   **事件驱动**: 不再直接操作 fd，而是使用 Handles 和 Streams。
-    *   **回调地狱 (Callback Hell)**: 业务逻辑被拆分到 `on_connect`, `on_read`, `on_write` 等回调函数中。
-    *   **状态管理**: 利用 `client->data` 指针在不同回调之间传递上下文 (Context)。
-*   **核心技术**:
-    *   **Work Queue**: 利用线程池处理耗时任务（如文件 IO），避免阻塞主事件循环。
-    *   **State Machine**: 在回调中维护协议状态 (`WAIT_FOR_MSG` / `IN_MSG`)。
+*   **特点**: 基于事件循环的异步 I/O 库，是 Node.js 的核心。
+*   **核心优势**:
+    *   **跨平台**: 在 Linux 上使用 epoll，在 Windows 上使用 IOCP，在 macOS 上使用 kqueue。
+    *   **高性能**: 高度优化的事件循环，极大简化了非阻塞 I/O 的编程复杂度。
+    *   **异步回调**: 通过回调函数处理 I/O 事件，代码结构清晰。
 *   **编译**:
     ```bash
-    gcc libuv_server/libuv_server.c sequential_server/utils.c -o libuv_server/server -luv
+    cc libuv_server/libuv_server.c utils.c -o libuv_server/libuv_server -luv
     ```
 *   **运行**:
     ```bash
-    ./libuv_server/server
+    ./libuv_server/libuv_server
     ```
 
-### 2.7 Redis 案例研究 (Redis Case Study)
-*   **学习内容**: 深入分析 Redis 的高性能架构 (Part 5)。
-*   **核心架构**:
-    *   **单线程事件循环**: 避免了多线程的锁竞争和上下文切换开销。
-    *   **ae 库**: Redis 自研的简单事件库，封装了 `epoll`/`kqueue`/`select`。
-    *   **写优化 (beforeSleep)**: 不立即调用 `send`，而是将待发送数据放入链表，在每次进入 `epoll_wait` 睡眠**之前**批量发送，减少系统调用次数。
-*   **启示**: 
-    *   高性能不一定需要多线程。对于 IO 密集型 + 内存操作，单线程往往更快。
-    *   **CPU 瓶颈**: 单线程模型的最大弱点是不能有耗时命令（如 `KEYS *`），否则会阻塞整个服务。
+## 3. 性能测试总结 (Benchmark)
 
-### 2.8 性能测试 (Benchmark)
-*   **代码位置**: `benchmark.go`
-*   **语言**: Go (Golang)
-*   **目的**: 使用 Go 语言的高并发特性 (Goroutines) 对上述所有 C 服务器进行压力测试，验证其稳定性与性能极限。
-*   **功能**:
-    *   **并发连接**: 模拟数千个客户端同时连接。
-    *   **协议兼容**: 实现了本项目的自定义协议 (握手 `*` -> 发送 `^` + Payload -> 接收回显)。
-    *   **统计指标**: 实时计算 QPS (Queries Per Second)、延迟分布 (P50/P99) 和错误率。
-    *   **可视化**: 在终端输出简单的 ASCII 延迟直方图。
-*   **运行**:
+我们在 Windows Subsystem for Linux (WSL) 环境下，使用 Go 编写的压测工具对上述服务器模型进行了基准测试。
+
+### 3.1 100 并发测试结果
+
+| Server Model | QPS (Req/Sec) | Avg Latency (ms) | P99 Latency (ms) | Errors | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sequential** | ~22 | 43.98 | 44.29 | High | 单线程阻塞，无法处理并发 |
+| **Threaded** | ~2,250 | 44.10 | 48.00 | 0 | 线程开销大，无法扩展 |
+| **Thread Pool** | ~90 | 44.03 | 44.30 | High | 线程池太小 (4)，任务排队严重 |
+| **Select** | ~104,803 | 0.94 | 2.51 | 0 | 小并发下性能极佳 |
+| **Epoll** | ~80,047 | 1.24 | 3.04 | 0 | 高性能，吞吐量稳定 |
+| **Libuv** | ~81,228 | 1.21 | 3.25 | 0 | 与 Epoll 性能相当，开发更简单 |
+
+### 3.2 10,000 并发挑战 (C10K)
+
+我们进一步对 **Epoll** 和 **Libuv** 服务器进行了 10,000 并发的极限测试。
+
+*   **Epoll Server**:
+    *   **QPS**: ~39,212
+    *   **Errors**: ~5,781
+    *   **分析**: 成功抗住 10k 连接，但由于系统端口耗尽和 backlog 限制，出现了一定比例的连接失败。QPS 下降是因为连接建立的开销增大。
+
+*   **Libuv Server**:
+    *   **QPS**: ~42,731
+    *   **Errors**: ~4,763
+    *   **分析**: 表现略优于手写的 Epoll，证明了 Libuv 库的优化非常出色。
+
+### 3.3 遇到的问题与解决方案
+
+在进行 10,000 并发测试时，我们遇到了大量的连接错误。经过排查，主要原因是操作系统的资源限制：
+
+1.  **临时端口耗尽 (Ephemeral Port Exhaustion)**:
+    *   **现象**: 大量连接处于 `TIME_WAIT` 状态，导致新连接无法分配本地端口。
+    *   **解决**: 
+        *   开启 TCP 连接复用: `sudo sysctl -w net.ipv4.tcp_tw_reuse=1`
+        *   扩大本地端口范围: `sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"`
+        *   缩短 FIN-WAIT-2 超时: `sudo sysctl -w net.ipv4.tcp_fin_timeout=15`
+
+2.  **文件描述符限制 (File Descriptor Limits)**:
+    *   **现象**: `accept` 或 `socket` 调用失败，提示 "Too many open files"。
+    *   **解决**: 使用 `ulimit -n 20000` 临时提升 shell 的文件描述符限制。
+
+3.  **逻辑死锁 (Logical Deadlock)**:
+    *   **现象**: 客户端连接后卡死，没有任何响应。
+    *   **原因**: 协议要求服务端先发送 `*` (握手)。但在 Epoll 实现初期，`accept` 后仅注册了 `EPOLLIN` 事件。导致服务端在等待客户端发数据，而客户端在等待服务端发 `*`，形成死锁。
+    *   **解决**: 在 `accept` 后立即注册 `EPOLLOUT` 事件，或者直接尝试发送握手包，确保协议状态机能正确流转。
+
+通过上述优化，我们成功在单机 WSL 环境下达成了 **4.2万+ QPS** 的高并发处理能力。
+
+### 3.4 结果可视化 (Visualization)
+
+本项目包含一个 Go 脚本，用于将 CSV 压测结果转换为 SVG 图表。
+
+*   **运行命令**:
     ```bash
-    go run benchmark.go -c 100 -d 10s -addr localhost:9090
+    go run plot_results.go
     ```
-    (参数说明: `-c` 并发数, `-d` 测试时长, `-addr` 目标地址)
+*   **输出**: 生成 `benchmark_chart.svg`，可直接在浏览器中查看各服务器模型的性能对比。
 
-## 3. 客户端测试脚本
+![Benchmark Chart](benchmark_chart.svg)
 
-*   **脚本**: `simple_client.py`
-*   **用法**:
-    ```bash
-    python3 simple_client.py localhost 9090
-    ```
+## 4. 技术展望 (Future Roadmap)
 
-## 4. 局限性与 Future Work
+虽然目前的实现已经涵盖了主流的并发模型，但为了追求极致性能和更贴近生产环境，未来计划探索以下方向（作为技术储备）：
 
-### 4.1 当前实现的局限性 (Limitations)
-*   **Select 的连接数限制**: `select_server` 受限于 `FD_SETSIZE` (通常是 1024)，无法支持超大规模并发。
-*   **内存拷贝开销**: 目前所有的 Buffer 读写都涉及用户态到内核态的拷贝，尚未利用 Zero-copy 技术（如 `sendfile`）。
-*   **单线程瓶颈**: 虽然 IO 复用解决了并发连接数问题，但所有业务逻辑仍在**单线程**运行。如果业务计算密集（例如加密解密、复杂数据处理），会阻塞整个事件循环，导致所有客户端延迟增加。
-*   **惊群效应**: 虽然目前未实现多进程 Epoll，但如果将来扩展，简单的 Accept 可能会遇到惊群问题。
-*   **固定 Buffer 大小**: 使用了固定的 `1024` 字节 Buffer，对于超长消息可能会有截断或处理复杂性。
-*   **Epoll 状态存储查找慢**: 目前 `epoll_server` 仍然使用简单的数组 (`clients[MAX_EVENTS]`) 来通过 fd 查找客户端状态。如果 fd 值很大（超过 1024），会导致数组越界或浪费内存。在生产环境中，应该使用**哈希表 (Hash Map)** 来存储 `fd -> client_state` 的映射，以便高效且节省内存地管理稀疏连接。
+*   **Node.js 运行时探究 (Part 6)**:
+    *   深入分析 Node.js 是如何绑定 Libuv 的。
+    *   理解 JavaScript 单线程模型与底层 C 线程池的交互机制。
+*   **零拷贝技术 (Zero-Copy)**:
+    *   使用 `sendfile` 或 `splice` 系统调用，减少用户态与内核态之间的数据拷贝，进一步提升吞吐量。
+*   **多线程 + Event Loop (One Loop Per Thread)**:
+    *   实现类似 Nginx 或 Netty 的架构：主线程负责 Accept，多个 Worker 线程各自运行独立的 Event Loop。
+    *   充分利用多核 CPU 优势，打破单线程 Epoll/Libuv 的计算瓶颈。
+*   **应用层协议**:
+    *   从简单的自定义协议升级为 HTTP/1.1 或 HTTP/2，实现更通用的 Web 服务器。
 
-### 4.2 未来改进方向 (Future Work)
-*   **Reactor 模式**: 封装更通用的 Reactor 库，将 IO 事件与具体的业务回调解耦（类似 libevent/libuv）。
-*   **多线程 + Event Loop (One Loop Per Thread)**: 结合多线程和 Epoll。主线程只负责 Accept，然后将新连接分发给 Worker 线程的 Event Loop。这是 Nginx 和 Netty 的核心模型，能充分利用多核 CPU。
-*   **超时管理**: 目前没有处理僵尸连接。应该增加定时器轮或者红黑树来管理连接超时，踢掉长时间不活动的客户端。
-*   **应用层 Buffer 优化**: 实现动态扩容的 RingBuffer，替代目前简单的定长数组。
-*   **Node.js & Promises (Part 6)**: 学习 Node.js 的异步编程模型，对比 C/C++ 的实现差异。
-
-## 5. 学习心得与坑点
-*   **Socket API**: 理解了 `socket`, `bind`, `listen`, `accept`, `recv`, `send` 的基本流程。
-*   **多线程陷阱**: 在创建线程时，传递给线程的参数（如 `sockfd`）必须是堆内存 (`malloc`) 分配的，不能传栈变量的地址，否则会有 Race Condition。
-*   **Select 的坑**: 
-    1. 必须使用**非阻塞 IO**。
-    2. `send` 不能直接调，要配合 `writefds` 和缓冲区，否则会丢数据。
-    3. `FD_SET` 必须每次循环都重置，因为 `select` 会修改传入的集合。
-*   **Epoll 思考**: 理解了为何 Select 是 O(N) 而 Epoll 是 O(k)。Epoll 通过事件回调机制，只返回就绪的 FD，在大并发下性能优势巨大。
+---
+**项目维护者**: [AlannerFranklin](https://github.com/AlannerFranklin)

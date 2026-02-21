@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"net"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -19,6 +19,8 @@ var (
 	concurrency = flag.Int("c", 100, "Number of concurrent connections")
 	duration    = flag.Duration("d", 10*time.Second, "Test duration")
 	msgSize     = flag.Int("s", 64, "Payload size in bytes")
+	saveResults = flag.Bool("save", false, "Save results to benchmark_results.csv")
+	serverName  = flag.String("name", "Unknown", "Server name for the report (e.g. 'Threaded Server')")
 )
 
 // 统计指标
@@ -180,6 +182,40 @@ func printReport(elapsed time.Duration) {
 	
 	// 简单的 ASCII 柱状图 (Visualizing Latency)
 	printHistogram(sortedLats)
+
+	if *saveResults {
+		saveToCSV(elapsed, reqs, qps, avgLat, p99, errs)
+	}
+}
+
+func saveToCSV(elapsed time.Duration, reqs int64, qps float64, avg, p99 time.Duration, errs int64) {
+	filename := "benchmark_results.csv"
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("❌ Failed to open %s: %v\n", filename, err)
+		return
+	}
+	defer f.Close()
+
+	// 写入表头 (如果是新文件)
+	info, _ := f.Stat()
+	if info.Size() == 0 {
+		fmt.Fprintf(f, "Timestamp,Server Name,Concurrency,Duration(s),Total Reqs,QPS,Avg Latency(ms),P99 Latency(ms),Errors\n")
+	}
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(f, "%s,%s,%d,%.2f,%d,%.2f,%.2f,%.2f,%d\n",
+		timestamp,
+		*serverName,
+		*concurrency,
+		elapsed.Seconds(),
+		reqs,
+		qps,
+		float64(avg.Microseconds())/1000.0,
+		float64(p99.Microseconds())/1000.0,
+		errs,
+	)
+	fmt.Printf("\n💾 Results saved to %s\n", filename)
 }
 
 func printHistogram(lats []time.Duration) {

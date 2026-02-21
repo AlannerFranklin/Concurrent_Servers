@@ -1,0 +1,44 @@
+<svg width="800" height="770" xmlns="http://www.w3.org/2000/svg">
+<style>
+		.bar { fill: #4CAF50; }
+		.bar:hover { fill: #66BB6A; }
+		.text { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+		.title { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #333; }
+		.qps { font-weight: bold; fill: #fff; }
+	</style>
+<rect width="100%" height="100%" fill="#f9f9f9"/>
+<text x="400" y="40" class="title" text-anchor="middle">Server Performance Comparison (QPS)</text>
+<text x="190" y="80" class="text" text-anchor="end" alignment-baseline="middle">Select</text>
+<rect x="200" y="60" width="550" height="40" class="bar" rx="4" ry="4"/>
+<text x="740" y="80" class="text qps" text-anchor="end" alignment-baseline="middle">104803</text>
+<text x="190" y="140" class="text" text-anchor="end" alignment-baseline="middle">Libuv</text>
+<rect x="200" y="120" width="426" height="40" class="bar" rx="4" ry="4"/>
+<text x="616" y="140" class="text qps" text-anchor="end" alignment-baseline="middle">81228</text>
+<text x="190" y="200" class="text" text-anchor="end" alignment-baseline="middle">Epoll</text>
+<rect x="200" y="180" width="420" height="40" class="bar" rx="4" ry="4"/>
+<text x="610" y="200" class="text qps" text-anchor="end" alignment-baseline="middle">80048</text>
+<text x="190" y="260" class="text" text-anchor="end" alignment-baseline="middle">Epoll_2k</text>
+<rect x="200" y="240" width="293" height="40" class="bar" rx="4" ry="4"/>
+<text x="483" y="260" class="text qps" text-anchor="end" alignment-baseline="middle">55966</text>
+<text x="190" y="320" class="text" text-anchor="end" alignment-baseline="middle">Epoll_5k</text>
+<rect x="200" y="300" width="271" height="40" class="bar" rx="4" ry="4"/>
+<text x="461" y="320" class="text qps" text-anchor="end" alignment-baseline="middle">51689</text>
+<text x="190" y="380" class="text" text-anchor="end" alignment-baseline="middle">Libuv_10k</text>
+<rect x="200" y="360" width="242" height="40" class="bar" rx="4" ry="4"/>
+<text x="432" y="380" class="text qps" text-anchor="end" alignment-baseline="middle">46180</text>
+<text x="190" y="440" class="text" text-anchor="end" alignment-baseline="middle">Libuv_10k_Optimized</text>
+<rect x="200" y="420" width="224" height="40" class="bar" rx="4" ry="4"/>
+<text x="414" y="440" class="text qps" text-anchor="end" alignment-baseline="middle">42732</text>
+<text x="190" y="500" class="text" text-anchor="end" alignment-baseline="middle">Epoll_10k</text>
+<rect x="200" y="480" width="205" height="40" class="bar" rx="4" ry="4"/>
+<text x="395" y="500" class="text qps" text-anchor="end" alignment-baseline="middle">39213</text>
+<text x="190" y="560" class="text" text-anchor="end" alignment-baseline="middle">Thread-per-Client</text>
+<rect x="200" y="540" width="11" height="40" class="bar" rx="4" ry="4"/>
+<text x="221" y="560" class="text" text-anchor="start" alignment-baseline="middle">2251</text>
+<text x="190" y="620" class="text" text-anchor="end" alignment-baseline="middle">Thread Pool</text>
+<rect x="200" y="600" width="10" height="40" class="bar" rx="4" ry="4"/>
+<text x="220" y="620" class="text" text-anchor="start" alignment-baseline="middle">90</text>
+<text x="190" y="680" class="text" text-anchor="end" alignment-baseline="middle">Sequential</text>
+<rect x="200" y="660" width="10" height="40" class="bar" rx="4" ry="4"/>
+<text x="220" y="680" class="text" text-anchor="start" alignment-baseline="middle">23</text>
+</svg>

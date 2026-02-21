@@ -155,6 +155,9 @@ int main(int argc, char** argv) {
     printf("Serving on port %d\n", portnum);
 
     int listener_sockfd = listen_inet_socket(portnum);
+    // 关键点：一定要把 listener 设为非阻塞！
+    // 否则如果 select 告诉我有人连接，但我 accept 的时候对方正好断网了，
+    // 我就会卡在 accept 这里，导致整个服务器卡死。
     make_socket_non_blocking(listener_sockfd);
 
     init_clients();
@@ -171,9 +174,20 @@ int main(int argc, char** argv) {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i].fd != -1) {
                 FD_SET(clients[i].fd, &readfds);
+                
+                // 只有当有数据要发送时，才加入 writefds
                 if (clients[i].bytes_to_send > 0) {
                     FD_SET(clients[i].fd, &writefds);
+                } else if (clients[i].state == INITIAL_ACK) {
+                    // 对于新连接，我们立即准备发送 '*'
+                    if (clients[i].bytes_to_send < SENDBUF_SIZE) {
+                         clients[i].buf_to_send[clients[i].bytes_to_send++] = '*';
+                         clients[i].state = WAIT_FOR_MSG;
+                         // 加入 writefds 以便立即发送
+                         FD_SET(clients[i].fd, &writefds);
+                    }
                 }
+
                 if (clients[i].fd > max_fd) {
                     max_fd = clients[i].fd;
                 }
@@ -210,79 +224,83 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        // 处理现有客户端的数据
-        for (int i = 0;i < MAX_CLIENTS; i++) {
-            if (clients[i].fd != -1 && FD_ISSET(clients[i].fd, &readfds)) {
-                int sockfd = clients[i].fd;
-                char buffer[1024];
+        // 检查是不是有已连接的客户端有数据可读
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (clients[i].fd == -1) {
+                continue;
+            }
+            int sockfd = clients[i].fd;
 
-                //优化方向，监听writefds
-                if (clients[i].state == INITIAL_ACK) {
-                    if (clients[i].bytes_to_send < SENDBUF_SIZE) {
-                        clients[i].buf_to_send[clients[i].bytes_to_send++] = '*';
-                        clients[i].state = WAIT_FOR_MSG;
+            if (FD_ISSET(sockfd, &readfds)) {
+                char buffer[1024];
+                int valread = recv(sockfd, buffer, sizeof(buffer), 0);
+                
+                if (valread <= 0) {
+                    // 客户端断开或出错
+                    if (valread == 0) {
+                        // 正常关闭
+                        printf("Host disconnected, fd %d\n", sockfd);
+                    } else {
+                        perror("recv error");
                     }
+                    close(sockfd);
+                    FD_CLR(sockfd, &readfds); // 确保从集合中移除
+                    clients[i].fd = -1; // 释放位置
+                    clients[i].bytes_to_send = 0;
+                    clients[i].state = INITIAL_ACK;
+                    continue; // 处理下一个客户端
                 }
 
-                int valread = recv(sockfd, buffer, 1024, 0);
-                // 客户端断开
-                if (valread == 0) {
-                    getpeername(sockfd, (struct sockaddr*)&buffer, (socklen_t*)&valread);
-                    printf("Host disconnected, fd %d\n", sockfd);
-                    close(sockfd);
-                    clients[i].fd = -1;
-                    clients[i].state = INITIAL_ACK;
-                    // 这里不用标注state吗？clients[i].state = INITIAL_ACK;
-                    // 需要标记，避免脏数据
-                    clients[i].bytes_to_send = 0;
-                } else {
-                    // 状态机处理逻辑
-                    for (int k = 0; k < valread; k++) {
-                        char input = buffer[k];
-                        switch (clients[i].state) {
-                            case INITIAL_ACK:
-                                break;
-                            case WAIT_FOR_MSG:
-                                if (input == '^') {
-                                    clients[i].state = IN_MSG;
+                // 处理接收到的数据
+                for (int k = 0; k < valread; k++) {
+                    char input = buffer[k];
+                    switch (clients[i].state) {
+                        case INITIAL_ACK:
+                            // 理论上不应该在这里收到数据，除非还没发 '*' 客户端就发数据了
+                            // 这里我们简单处理，直接忽略或转入 WAIT_FOR_MSG
+                            clients[i].state = WAIT_FOR_MSG;
+                            // fallthrough
+                        case WAIT_FOR_MSG:
+                            if (input == '^') {
+                                clients[i].state = IN_MSG;
+                            }
+                            break;
+                        case IN_MSG:
+                            if (input == '$') {
+                                clients[i].state = WAIT_FOR_MSG;
+                            } else {
+                                if (clients[i].bytes_to_send < SENDBUF_SIZE) {
+                                    clients[i].buf_to_send[clients[i].bytes_to_send++] = input + 1;
                                 }
-                                break;
-                            case IN_MSG:
-                                if (input == '$') {
-                                    clients[i].state = WAIT_FOR_MSG;
-                                } else {
-                                    if (clients[i].bytes_to_send < SENDBUF_SIZE) {
-                                        clients[i].buf_to_send[clients[i].bytes_to_send++] = input + 1;
-                                    }
-                                }
-                                break;
-                        }
+                            }
+                            break;
                     }
                 }
             }
         }
-        for (int i = 0;i < MAX_CLIENTS; i++) {
-            if (clients[i].fd != -1 && clients[i].bytes_to_send > 0 && FD_ISSET(clients[i].fd, &writefds)) {
-                int sockfd = clients[i].fd;
 
-                // 在这里调用send
+        // 处理写事件
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+             if (clients[i].fd != -1 && clients[i].bytes_to_send > 0 && FD_ISSET(clients[i].fd, &writefds)) {
+                int sockfd = clients[i].fd;
                 int sent = send(sockfd, clients[i].buf_to_send, clients[i].bytes_to_send, 0);
 
                 if (sent < 0) {
                     perror("send error");
                     close(sockfd);
+                    FD_CLR(sockfd, &readfds); // 确保从集合中移除
                     clients[i].fd = -1;
+                    clients[i].bytes_to_send = 0;
+                    clients[i].state = INITIAL_ACK;
                     continue;
                 }
-
-                // 关键：如果只发了一部分，要把剩下的挪到前面
-                // 比如 buf 是 "abc"，发了 "a" (sent=1)，剩下 "bc"
-                // 就要把 "bc" 挪到 buf[0] 的位置
+                
                 if (sent > 0) {
-                    // memove(目标，源，长度)
                     int remaining = clients[i].bytes_to_send - sent;
-                    memmove(clients[i].buf_to_send, clients[i].buf_to_send + sent, remaining);
-                    clients[i].bytes_to_send -= sent;
+                    if (remaining > 0) {
+                         memmove(clients[i].buf_to_send, clients[i].buf_to_send + sent, remaining);
+                    }
+                    clients[i].bytes_to_send = remaining;
                 }
             }
         }

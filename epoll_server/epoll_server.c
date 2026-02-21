@@ -7,8 +7,8 @@
 #include <sys/epoll.h>
 #include "../utils.h"
 
-// Epoll 最大的事件监听数，这里决定了 epoll_wait 一次最多能返回多少个就绪事件
-#define MAX_EVENTS 1024
+// Epoll 最大的事件监听数，也是我们最大的客户端数组大小
+#define MAX_EVENTS 12000
 // 发送缓冲区大小
 #define SENDBUF_SIZE 1024
 
@@ -143,16 +143,20 @@ int main(int argc, char** argv) {
                     printf("New connection, socket fd is %d\n", new_socket);
                     
                     // 将新客户端 Socket 加入 epoll 监控
-                    // 初始只监听 EPOLLIN (可读)，因为刚连上还没数据要发，没必要监听 EPOLLOUT
                     struct epoll_event ev_client;
-                    ev_client.events = EPOLLIN;
+                    ev_client.events = EPOLLIN | EPOLLOUT; // 初始监听读写，因为要发 '*'
                     ev_client.data.fd = new_socket;
                     if (epoll_ctl(epfd, EPOLL_CTL_ADD, new_socket, &ev_client) == -1) {
                         perror("epoll_ctl: add client");
                         close(new_socket);
                     } else {
                         // 初始化该客户端的状态结构体
-                        get_client_state(new_socket);
+                        client_state_t* client = get_client_state(new_socket);
+                        // 立即准备发送 '*'
+                        if (client->bytes_to_send < SENDBUF_SIZE) {
+                            client->buf_to_send[client->bytes_to_send++] = '*';
+                            client->state = WAIT_FOR_MSG; 
+                        }
                     }
                 }
             } 
@@ -164,56 +168,53 @@ int main(int argc, char** argv) {
                 // B.1: 处理可读事件 (EPOLLIN) -> 客户端发来了数据
                 if (events[i].events & EPOLLIN) {
                     char buffer[1024];
-                    
-                    // 特殊逻辑：如果是刚连接 (INITIAL_ACK)，需要先发送 '*'
-                    // 我们不直接 send，而是写入发送缓冲区，让后面的写事件逻辑去发送
-                    if (client->state == INITIAL_ACK) {
-                        if (client->bytes_to_send < SENDBUF_SIZE) {
-                            client->buf_to_send[client->bytes_to_send++] = '*';
-                            client->state = WAIT_FOR_MSG; // 状态流转：进入等待消息状态
-                        }
-                    }
-
-                    // 尝试读取数据
                     int valread = recv(fd, buffer, 1024, 0);
-                    
+
                     if (valread <= 0) {
                         // recv 返回 0 表示对方关闭连接，返回 -1 表示出错
-                        printf("Host disconnected, fd %d\n", fd);
+                        // if (valread == 0) {
+                        //    printf("Host disconnected, fd %d\n", fd);
+                        // } else {
+                        //    perror("recv error");
+                        // }
                         
                         // 清理工作：
-                        // 1. 从 epoll 移除监控 (EPOLL_CTL_DEL)
                         epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
-                        // 2. 关闭 Socket
                         close(fd);
-                        // 3. 释放状态内存
                         free_client_state(fd);
                         continue; // 这个客户端处理完了，跳过后面逻辑
-                    } else {
-                        // 收到数据，喂给状态机处理
-                        for (int k = 0; k < valread; k++) {
-                            char input = buffer[k];
-                            switch (client->state) {
-                                case INITIAL_ACK: 
-                                    // 理论上不会走到这里，因为上面已经处理了
-                                    break;
-                                case WAIT_FOR_MSG:
-                                    // 等待开始符 '^'
-                                    if (input == '^') client->state = IN_MSG;
-                                    break;
-                                case IN_MSG:
-                                    // 正在接收消息
-                                    if (input == '$') {
-                                        client->state = WAIT_FOR_MSG; // 收到结束符，回到等待状态
-                                    } else {
-                                        // 核心业务逻辑：字符 + 1，并放入发送缓冲区
-                                        if (client->bytes_to_send < SENDBUF_SIZE) {
-                                            client->buf_to_send[client->bytes_to_send++] = input + 1;
-                                        }
+                    }
+
+                    // 收到数据，喂给状态机处理
+                    for (int k = 0; k < valread; k++) {
+                        char input = buffer[k];
+                        switch (client->state) {
+                            case INITIAL_ACK:
+                                client->state = WAIT_FOR_MSG;
+                                // fallthrough
+                            case WAIT_FOR_MSG:
+                                if (input == '^') client->state = IN_MSG;
+                                break;
+                            case IN_MSG:
+                                if (input == '$') {
+                                    client->state = WAIT_FOR_MSG;
+                                } else {
+                                    if (client->bytes_to_send < SENDBUF_SIZE) {
+                                        client->buf_to_send[client->bytes_to_send++] = input + 1;
                                     }
-                                    break;
-                            }
+                                }
+                                break;
                         }
+                    }
+                }
+                
+                // 特殊逻辑：如果是刚连接 (INITIAL_ACK)，需要先发送 '*'
+                // 已经在 accept 时处理了，这里移除。
+                if (client->state == INITIAL_ACK) {
+                    // 这个状态理论上不再进入了，除非发送失败重置
+                    if (client->bytes_to_send < SENDBUF_SIZE) {
+                        client->buf_to_send[client->bytes_to_send++] = '*';
+                        client->state = WAIT_FOR_MSG;
                     }
                 }
 
@@ -224,7 +225,10 @@ int main(int argc, char** argv) {
                         // 尝试发送缓冲区里的数据
                         int sent = send(fd, client->buf_to_send, client->bytes_to_send, 0);
                         if (sent < 0) {
-                            perror("send");
+                            perror("send error");
+                            
+                            // 清理工作
+                            epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
                             close(fd);
                             free_client_state(fd);
                             continue;

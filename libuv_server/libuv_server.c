@@ -99,9 +99,8 @@ void on_read(uv_stream_t *client, ssize_t nread, const uv_buf_t* buf) {
         
         switch (peerstate->state) {
             case INITIAL_ACK:
-                if (buf->base[i] == '*') {
-                    peerstate->state = WAIT_FOR_MSG;
-                }
+                // 理论上不会收到这个状态，因为我们在 on_peer_connected 就发了 '*' 并转为 WAIT_FOR_MSG
+                // 但如果客户端发得太快，可能会有问题吗？不会，因为我们还没有开始 uv_read_start
                 break;
             case WAIT_FOR_MSG:
                 if (buf->base[i] == '^') {
@@ -197,7 +196,8 @@ void on_peer_connected(uv_stream_t* server_stream, int status) {
 
         // 初始化 Peer State (协议状态)
         peer_state_t* peerstate = (peer_state_t*)xmalloc(sizeof(peer_state_t));
-        peerstate->state = INITIAL_ACK;
+        // 发送完 '*' 后，状态直接变为 WAIT_FOR_MSG，等待客户端发 '^'
+        peerstate->state = WAIT_FOR_MSG; 
         peerstate->sendbuf[0] = '*';
         peerstate->sendbuf_end = 1;
         peerstate->client = client;// 反向引用
