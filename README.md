@@ -143,12 +143,6 @@
     ```
     (参数说明: `-c` 并发数, `-d` 测试时长, `-addr` 目标地址)
 
-### 2.9 学习策略调整 (Strategic Pivot)
-*   **跳过 Part 6**: 原教程 Part 6 是关于 Node.js/Promises 的。鉴于目标岗位是 **C++ Client (ByteDance CapCut)**，决定跳过 JS 相关内容。
-*   **重心转移**: 
-    1.  **Go Benchmark**: 用 Go 写压测工具，既复习了 Go 的并发模型，又能以数据驱动的方式验证 C 服务器的性能。
-    2.  **深度优化**: 回头优化 Epoll/Libuv 服务器，解决遗留的 Buffer 拷贝和内存管理问题。
-
 ## 3. 客户端测试脚本
 
 *   **脚本**: `simple_client.py`
@@ -172,6 +166,7 @@
 *   **多线程 + Event Loop (One Loop Per Thread)**: 结合多线程和 Epoll。主线程只负责 Accept，然后将新连接分发给 Worker 线程的 Event Loop。这是 Nginx 和 Netty 的核心模型，能充分利用多核 CPU。
 *   **超时管理**: 目前没有处理僵尸连接。应该增加定时器轮或者红黑树来管理连接超时，踢掉长时间不活动的客户端。
 *   **应用层 Buffer 优化**: 实现动态扩容的 RingBuffer，替代目前简单的定长数组。
+*   **Node.js & Promises (Part 6)**: 学习 Node.js 的异步编程模型，对比 C/C++ 的实现差异。
 
 ## 5. 学习心得与坑点
 *   **Socket API**: 理解了 `socket`, `bind`, `listen`, `accept`, `recv`, `send` 的基本流程。
